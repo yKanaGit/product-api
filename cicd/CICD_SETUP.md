@@ -8,6 +8,7 @@
 - `oc` CLI ツールがインストール済み
 - `tkn` CLI ツール（オプション、Tekton パイプラインの管理用）
 - GitHub リポジトリに product-api のソースコードが push 済み
+  - リポジトリURL: `https://github.com/yKanaGit/product-api.git`
 
 ## セットアップ手順
 
@@ -26,17 +27,31 @@ oc apply -f cicd/operator/pipelines-subscription.yaml
 # Operator の Pod が起動していることを確認
 oc get pods -n openshift-operators | grep pipelines
 
-# ClusterTask が作成されていることを確認
-oc get clustertasks | grep git-clone
+# Tekton Pipelines コンポーネントの確認
+oc get pods -n openshift-pipelines
+
+# Operatorのバージョン確認
+oc get csv -n openshift-operators | grep pipelines
 ```
 
 出力例：
 ```
-NAME        DESCRIPTION                          AGE
-git-clone   Clone a git repository to a workspace  5m
+openshift-pipelines-operator-rh.v1.22.0   Red Hat OpenShift Pipelines   1.22.0   ... Succeeded
 ```
 
-**注意**: Operator のインストールには数分かかる場合があります。すべての Pod が `Running` になるまで待ってください。
+**Tekton APIリソースの確認：**
+
+```bash
+# Tekton関連のAPIリソースを確認
+oc api-resources | grep tekton.dev
+```
+
+Pipeline、Task、PipelineRun などが表示されればOKです。
+
+**注意**: 
+- Operator のインストールには数分かかる場合があります
+- OpenShift Pipelines v1.22.0 以降では、ClusterTask は非推奨となり、リモートリゾルバーを使用する方向になっています
+- 本セットアップでは `git-clone` ClusterTask を使用していますが、利用できない場合は独自のgit-cloneタスクを作成する必要があります
 
 ---
 
@@ -45,6 +60,8 @@ git-clone   Clone a git repository to a workspace  5m
 ServiceAccount、RoleBinding、PVC を作成します。
 
 ```bash
+cd /Users/ykanayam/VScode/product-api
+
 # ServiceAccount の作成
 oc apply -f cicd/auth/pipeline-serviceaccount.yaml
 
@@ -61,6 +78,18 @@ oc apply -f cicd/workspace/pipeline-pvc.yaml
 oc get serviceaccount pipeline -n product-demo
 oc get rolebinding pipeline-edit -n product-demo
 oc get pvc pipeline-workspace -n product-demo
+```
+
+出力例：
+```
+NAME       SECRETS   AGE
+pipeline   0         10s
+
+NAME             ROLE                AGE
+pipeline-edit    ClusterRole/edit    10s
+
+NAME                 STATUS   VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+pipeline-workspace   Bound    ...      2Gi        RWO            ...            10s
 ```
 
 ---
@@ -85,14 +114,20 @@ oc apply -f cicd/pipeline/pipeline.yaml
 oc get tasks -n product-demo
 
 # Pipeline の確認
-oc get pipelines -n product-demo
+oc get pipeline -n product-demo
 ```
 
 出力例：
 ```
+NAME              AGE
+build-and-push    10s
+deploy            10s
+
 NAME                   AGE
 product-api-pipeline   10s
 ```
+
+**注意**: Pipelineデプロイ時に `git-clone` ClusterTask が見つからないエラーが出た場合は、以下のトラブルシューティングセクションを参照してください。
 
 ---
 
@@ -129,14 +164,7 @@ oc get route product-api-listener -n product-demo
 
 まず手動でパイプラインを実行して、正しく動作することを確認します。
 
-**重要**: `cicd/pipeline/pipelinerun.yaml` の `GIT_REPO_URL` を実際の GitHub リポジトリ URL に変更してください。
-
-```yaml
-# cicd/pipeline/pipelinerun.yaml を編集
-params:
-  - name: GIT_REPO_URL
-    value: https://github.com/<your-org>/product-api.git  # ← 実際のリポジトリURLに変更
-```
+**注意**: `cicd/pipeline/pipelinerun.yaml` はすでに正しいリポジトリURL（`https://github.com/yKanaGit/product-api.git`）に設定済みです。
 
 パイプラインを実行：
 
@@ -149,7 +177,7 @@ oc create -f cicd/pipeline/pipelinerun.yaml
 
 ```bash
 tkn pipeline start product-api-pipeline \
-  --param GIT_REPO_URL=https://github.com/<your-org>/product-api.git \
+  --param GIT_REPO_URL=https://github.com/yKanaGit/product-api.git \
   --param GIT_REVISION=main \
   --workspace name=shared-workspace,claimName=pipeline-workspace \
   --serviceaccount pipeline \
@@ -257,6 +285,43 @@ tkn pipelinerun logs -f -L
 ---
 
 ## トラブルシューティング
+
+### git-clone ClusterTask が見つからない
+
+OpenShift Pipelines v1.22.0 以降では、ClusterTaskが非推奨になっている場合があります。
+
+**確認方法：**
+
+```bash
+# git-clone が利用可能か確認
+oc get clustertask git-clone
+```
+
+**エラーが出る場合の対処法：**
+
+Pipelineの `fetch-repository` タスクで、Tekton Hubのリモートリゾルバーを使うように変更するか、独自のgit-cloneタスクを作成します。
+
+**修正例（Tekton Hubリゾルバーを使用）:**
+
+```yaml
+# pipeline.yaml の fetch-repository タスクを以下に変更
+- name: fetch-repository
+  taskRef:
+    resolver: hub
+    params:
+      - name: name
+        value: git-clone
+      - name: version
+        value: "0.9"
+  workspaces:
+    - name: output
+      workspace: shared-workspace
+  params:
+    - name: url
+      value: $(params.GIT_REPO_URL)
+    - name: revision
+      value: $(params.GIT_REVISION)
+```
 
 ### Operator がインストールされない
 

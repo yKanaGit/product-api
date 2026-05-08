@@ -1,0 +1,26 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: deploy
+  namespace: product-demo
+spec:
+  params:
+    - name: DEPLOYMENT_NAME
+      description: Name of the Deployment to update
+      type: string
+    - name: IMAGE
+      description: Image reference to deploy
+      type: string
+  steps:
+    - name: update-deployment
+      image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+      script: |
+        #!/usr/bin/env bash
+        set -e
+        echo "Updating deployment $(params.DEPLOYMENT_NAME) with image $(params.IMAGE)"
+        oc set image deployment/$(params.DEPLOYMENT_NAME) \
+          $(params.DEPLOYMENT_NAME)=$(params.IMAGE) \
+          -n product-demo
+        echo "Waiting for rollout to complete..."
+        oc rollout status deployment/$(params.DEPLOYMENT_NAME) -n product-demo
+        echo "Deployment updated successfully!"

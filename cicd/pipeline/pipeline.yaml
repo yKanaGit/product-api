@@ -1,0 +1,59 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: product-api-pipeline
+  namespace: product-demo
+spec:
+  params:
+    - name: GIT_REPO_URL
+      type: string
+      description: Git repository URL
+    - name: GIT_REVISION
+      type: string
+      default: main
+      description: Git revision to checkout
+    - name: IMAGE_NAME
+      type: string
+      default: image-registry.openshift-image-registry.svc:5000/product-demo/product-api:latest
+      description: Image name to build and deploy
+  workspaces:
+    - name: shared-workspace
+      description: Workspace shared among tasks
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        name: git-clone
+        kind: ClusterTask
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+      params:
+        - name: url
+          value: $(params.GIT_REPO_URL)
+        - name: revision
+          value: $(params.GIT_REVISION)
+        - name: deleteExisting
+          value: "true"
+
+    - name: build-and-push
+      taskRef:
+        name: build-and-push
+      runAfter:
+        - fetch-repository
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE_NAME)
+
+    - name: deploy
+      taskRef:
+        name: deploy
+      runAfter:
+        - build-and-push
+      params:
+        - name: DEPLOYMENT_NAME
+          value: product-api
+        - name: IMAGE
+          value: $(params.IMAGE_NAME)

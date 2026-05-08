@@ -1,0 +1,20 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: product-api-pipeline-run-
+  namespace: product-demo
+spec:
+  serviceAccountName: pipeline
+  pipelineRef:
+    name: product-api-pipeline
+  params:
+    - name: GIT_REPO_URL
+      value: https://github.com/<your-org>/product-api.git
+    - name: GIT_REVISION
+      value: main
+    - name: IMAGE_NAME
+      value: image-registry.openshift-image-registry.svc:5000/product-demo/product-api:latest
+  workspaces:
+    - name: shared-workspace
+      persistentVolumeClaim:
+        claimName: pipeline-workspace

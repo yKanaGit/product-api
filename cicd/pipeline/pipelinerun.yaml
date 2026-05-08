@@ -9,7 +9,7 @@ spec:
     name: product-api-pipeline
   params:
     - name: GIT_REPO_URL
-      value: https://github.com/<your-org>/product-api.git
+      value: https://github.com/yKanaGit/product-api.git
     - name: GIT_REVISION
       value: main
     - name: IMAGE_NAME
